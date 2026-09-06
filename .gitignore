@@ -1,0 +1,31 @@
+# === 安全：绝不提交 ===
+.env
+.env.*
+!.env.example
+*.pem
+
+# === Python ===
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# === Node/Vue ===
+node_modules/
+dist/
+.npm/
+*.local
+
+# === IDE/OS ===
+.idea/
+.vscode/
+.DS_Store
+
+# === 运行产物 ===
+logs/
+*.log
+docs
