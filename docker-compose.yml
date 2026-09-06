@@ -16,5 +16,27 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build: ./backend
+    container_name: banana-agents-api
+    env_file:
+      - .env
+    environment:
+      # Compose network hostname (overrides localhost from .env.example)
+      DATABASE_URL: postgresql+asyncpg://banana:banana@db:5432/banana
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    container_name: banana-agents-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
 volumes:
   banana_pgdata:

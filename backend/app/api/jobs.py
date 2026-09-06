@@ -6,6 +6,7 @@ from app.api.deps import get_current_user
 from app.db import get_db
 from app.models import GenerationJob, User
 from app.schemas import JobOut
+from app.services.jobs.runner import request_cancel
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -46,4 +47,5 @@ async def cancel_job(
     job.status = "cancelled"
     await db.commit()
     await db.refresh(job)
+    request_cancel(job_id)
     return job

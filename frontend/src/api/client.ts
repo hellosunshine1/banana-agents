@@ -183,3 +183,213 @@ export function getJob(id: number) {
 export function cancelJob(id: number) {
   return api<Job>(`/api/jobs/${id}/cancel`, { method: "POST" });
 }
+
+export type BlueprintItem = {
+  chapter_number: number;
+  title: string;
+  summary: string;
+  raw_text: string;
+};
+
+export type Chapter = {
+  id: number;
+  project_id: number;
+  chapter_number: number;
+  content: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export function generateArchitecture(projectId: number) {
+  return api<{ job_id: number }>(`/api/projects/${projectId}/architecture/generate`, {
+    method: "POST",
+  });
+}
+
+export function generateBlueprint(projectId: number) {
+  return api<{ job_id: number }>(`/api/projects/${projectId}/blueprint/generate`, {
+    method: "POST",
+  });
+}
+
+export function getBlueprint(projectId: number) {
+  return api<{ items: BlueprintItem[] }>(`/api/projects/${projectId}/blueprint`);
+}
+
+export function putBlueprint(projectId: number, items: BlueprintItem[]) {
+  return api<{ items: BlueprintItem[] }>(`/api/projects/${projectId}/blueprint`, {
+    method: "PUT",
+    body: JSON.stringify({ items }),
+  });
+}
+
+export function getChapter(projectId: number, n: number) {
+  return api<Chapter>(`/api/projects/${projectId}/chapters/${n}`);
+}
+
+export function putChapter(projectId: number, n: number, content: string) {
+  return api<Chapter>(`/api/projects/${projectId}/chapters/${n}`, {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export function finalizeChapter(projectId: number, n: number) {
+  return api<{ job_id: number }>(`/api/projects/${projectId}/chapters/${n}/finalize`, {
+    method: "POST",
+  });
+}
+
+export function ragQuery(projectId: number, query: string, top_k?: number) {
+  return api<{ hits: Array<{ id: number; chapter_number: number; chunk_index: number; content: string }> }>(
+    `/api/projects/${projectId}/rag/query`,
+    {
+      method: "POST",
+      body: JSON.stringify({ query, top_k }),
+    },
+  );
+}
+
+export type SseHandlers = {
+  onMeta?: (data: Record<string, unknown>) => void;
+  onToken?: (text: string) => void;
+  onUsage?: (data: Record<string, unknown>) => void;
+  onDone?: (data: Record<string, unknown>) => void;
+  onError?: (message: string) => void;
+};
+
+export async function streamChapterDraft(
+  projectId: number,
+  n: number,
+  guidance: string,
+  handlers: SseHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const res = await fetch(`/api/projects/${projectId}/chapters/${n}/draft`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ guidance }),
+    signal,
+  });
+  if (res.status === 401) {
+    clearAuth();
+    window.location.href = "/login";
+    throw new ApiError(401, "Unauthorized");
+  }
+  if (!res.ok || !res.body) {
+    throw new ApiError(res.status, "Draft stream failed");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+    for (const part of parts) {
+      const line = part
+        .split("\n")
+        .find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      const raw = line.slice(5).trim();
+      try {
+        const evt = JSON.parse(raw) as Record<string, unknown>;
+        const event = String(evt.event || "");
+        if (event === "meta") handlers.onMeta?.(evt);
+        else if (event === "token") handlers.onToken?.(String(evt.text || ""));
+        else if (event === "usage") handlers.onUsage?.(evt);
+        else if (event === "done") handlers.onDone?.(evt);
+        else if (event === "error") handlers.onError?.(String(evt.message || "error"));
+      } catch {
+        /* ignore partial */
+      }
+    }
+  }
+}
+
+export async function pollJobUntilDone(
+  jobId: number,
+  onUpdate?: (job: Job) => void,
+  intervalMs = 1500,
+): Promise<Job> {
+  while (true) {
+    const job = await getJob(jobId);
+    onUpdate?.(job);
+    if (["succeeded", "failed", "cancelled"].includes(job.status)) {
+      return job;
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
+export type AgentChatResponse = {
+  intent: string;
+  tool: string | null;
+  job_id: number | null;
+  sse_endpoint: string | null;
+  message: string;
+  data: Record<string, unknown> | null;
+};
+
+export type AuditLog = {
+  id: number;
+  project_id: number;
+  user_id: number;
+  user_message: string;
+  intent: string;
+  tool_name: string | null;
+  tool_args: Record<string, unknown> | null;
+  status: string;
+  result_summary: string;
+  created_at: string;
+};
+
+export type ConsistencyReview = {
+  id: number;
+  project_id: number;
+  chapter_number: number;
+  job_id: number | null;
+  conflicts: {
+    summary?: string;
+    conflicts?: Array<{
+      type?: string;
+      severity?: string;
+      detail?: string;
+      locations?: unknown[];
+    }>;
+  };
+  raw_text: string;
+  created_at: string;
+};
+
+export function agentChat(
+  projectId: number,
+  payload: { message: string; chapter_number?: number; guidance?: string },
+) {
+  return api<AgentChatResponse>(`/api/projects/${projectId}/agent/chat`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listAudits(projectId: number, limit = 50) {
+  return api<AuditLog[]>(`/api/projects/${projectId}/agent/audits?limit=${limit}`);
+}
+
+export function consistencyCheck(projectId: number, n: number) {
+  return api<{ job_id: number }>(`/api/projects/${projectId}/chapters/${n}/consistency-check`, {
+    method: "POST",
+  });
+}
+
+export function listReviews(projectId: number, n: number) {
+  return api<ConsistencyReview[]>(`/api/projects/${projectId}/chapters/${n}/reviews`);
+}

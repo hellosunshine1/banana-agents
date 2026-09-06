@@ -1,14 +1,17 @@
+import json
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(ROOT_DIR / ".env", Path(".env")),
+        env_file=(BACKEND_DIR / ".env", Path(".env")),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -27,13 +30,34 @@ class Settings(BaseSettings):
     dify_wf_finalize_summary: str = ""
     dify_wf_consistency_review: str = ""
 
+    # auto | dify | langchain
+    generation_backend: str = "auto"
+
     job_timeout_sec: int = 600
     job_max_concurrency: int = 2
 
+    # Prefer JSON list in env (pydantic-settings). Comma-separated also accepted via validator
+    # when the value reaches the model (e.g. programmatic init).
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost",
+        "http://127.0.0.1",
     ]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return []
+            if text.startswith("["):
+                return json.loads(text)
+            return [part.strip() for part in text.split(",") if part.strip()]
+        return value
 
 
 @lru_cache
