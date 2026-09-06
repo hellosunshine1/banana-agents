@@ -28,4 +28,3 @@ dist/
 # === 运行产物 ===
 logs/
 *.log
-docs

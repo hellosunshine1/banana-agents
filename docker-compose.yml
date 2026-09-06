@@ -1,0 +1,20 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: banana-agents-db
+    environment:
+      POSTGRES_USER: banana
+      POSTGRES_PASSWORD: banana
+      POSTGRES_DB: banana
+    ports:
+      - "5432:5432"
+    volumes:
+      - banana_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banana -d banana"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  banana_pgdata:
